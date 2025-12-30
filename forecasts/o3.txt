@@ -1,0 +1,229 @@
+Below is a complete, reproducible outline of one way to turn the four weekly series you have into 3-month (≈13-week) forecasts of “people with visas arriving in the country”.  The method is deliberately simple enough to work with a short history, but flexible enough to be improved later if you have more data.
+
+------------------------------------------------------------------
+1.  Conceptual model
+------------------------------------------------------------------
+Pipeline view (one record per week and visa type):
+
+    Applications ──► Visas issued ──► Arrivals
+
+• “Applications → Issued”: happens with a variable delay and an approval rate < 1.  
+• “Issued → Arrivals”: most Ukrainian visa-holders travel within 0–4 weeks of getting a visa.
+
+Therefore arrivals at week t can be described by  
+    Arrivals(t) = f{Issued(t), Issued(t-1), …, Issued(t-k), Backlog(t)} + ε(t)
+
+Backlog(t) = cumulative visas issued up to t  –  cumulative arrivals up to t  
+(people who could still travel).
+
+We capture this relation with a dynamic regression (regression + ARIMA errors).  
+Because arrivals are counts that can be large, ordinary least-squares works fine; if
+you prefer a formal count distribution use a Negative-Binomial GLM with ARMA errors
+(e.g. tscount, glarma).  Here we stay with the classical forecast package.
+
+------------------------------------------------------------------
+2.  Feature engineering (per visa type and totals)
+------------------------------------------------------------------
+For every week:
+1. Lags 1–4 of visas issued: Issued_l1 … Issued_l4
+2. 4-week rolling sum of visas issued: Issued_roll4    (≈ short-term stock)
+3. Backlog (cum issued – cum arrived)
+4. Approval ratio = Issued / (Applications + 1)        (avoid ÷0)
+5. Seasonal dummies: week number or month factor
+6. Momentum variables: ΔIssued = Issued – lag(Issued)
+
+These are kept for each scheme plus a “Total”.  
+In the code the total features are prefixed tot_, the scheme-specific ones
+have the suffixes _FS (Family Scheme), _SS (Sponsorship Scheme) and _GS.
+
+------------------------------------------------------------------
+3.  Modelling & forecasting procedure
+------------------------------------------------------------------
+Step 0   Read and reshape the raw file → one row per week  
+Step 1   Create the engineered features (using slider)  
+Step 2   Split the last 13 weeks into a hold-out set to measure accuracy  
+Step 3   Fit a dynamic regression
+
+        auto.arima(y = Arrivals ,
+                   xreg = feature_matrix ,
+                   seasonal = TRUE/auto) 
+
+Step 4   Forecast the exogenous regressors (mainly visas issued) with univariate
+         ARIMA models.  Their forecasts are fed into Step 3 to produce
+         Arrivals forecasts for h = 13 weeks.
+
+------------------------------------------------------------------
+4.  Full R implementation
+------------------------------------------------------------------
+```r
+# ──────────────────────────────────────────────────────────────
+#  Libraries
+# ──────────────────────────────────────────────────────────────
+library(tidyverse)
+library(lubridate)
+library(slider)        # rolling windows
+library(forecast)      # ARIMA + dynamic regression
+library(tsibble)       # tidy time series
+
+# ──────────────────────────────────────────────────────────────
+#  0.  READ & RESHAPE DATA
+#     columns required in the csv: Week, Scheme, Applications,
+#     VisasIssued, Arrivals
+# ──────────────────────────────────────────────────────────────
+raw <- read_csv("ukraine_visa_weekly.csv") %>% 
+        mutate(Week = yearweek(Week))         # coercion to <tsibble::yearweek>
+
+# Pivot to one row per week, keep scheme level AND totals ----------------------
+wide <- raw %>% 
+  pivot_wider(names_from = Scheme,
+              values_from = c(Applications, VisasIssued),
+              names_sep = "_") %>% 
+  group_by(Week) %>% 
+  summarise(across(starts_with(c("Applications","VisasIssued")), sum, .names = "{.col}_tot"),
+            Arrivals_tot = sum(Arrivals),
+            .groups = "drop") %>% 
+  # merge back the scheme detail:
+  left_join(
+       raw %>% 
+         select(Week, Scheme, Applications, VisasIssued) %>% 
+         pivot_wider(names_from = Scheme, values_from = c(Applications, VisasIssued),
+                     names_sep = "_"),
+       by = "Week")
+
+# Keep the time order
+wide <- wide %>% arrange(Week)
+
+# ──────────────────────────────────────────────────────────────
+#  1.  FEATURE ENGINEERING
+# ──────────────────────────────────────────────────────────────
+make_features <- function(df, prefix){
+  
+  issued      <- pull(df, paste0("VisasIssued_", prefix))
+  arrivals    <- pull(df, "Arrivals_tot")
+  applications<- pull(df, paste0("Applications_", prefix))
+  
+  tibble(
+    !!paste0("Issued_",prefix,"_l1")      := lag(issued, 1),
+    !!paste0("Issued_",prefix,"_l2")      := lag(issued, 2),
+    !!paste0("Issued_",prefix,"_l3")      := lag(issued, 3),
+    !!paste0("Issued_",prefix,"_l4")      := lag(issued, 4),
+    !!paste0("Issued_",prefix,"_roll4")   := slide_dbl(issued, sum,
+                                                       .before = 3, .complete = FALSE),
+    !!paste0("Backlog_",prefix)           :=
+          cumsum(replace_na(issued,0)) - cumsum(replace_na(arrivals,0)),
+    !!paste0("Approval_",prefix)          := issued/(applications + 1),
+    !!paste0("DeltaIssued_",prefix)       := issued - lag(issued,1)
+  )
+}
+
+# Build features for each scheme and for the total ----------------------------
+schemes <- c("FS","SS","GS","tot")          # abbreviations
+
+features <- map_dfc(schemes, ~make_features(wide, .x))
+
+data_mod <- bind_cols(wide %>% select(Week, Arrivals = Arrivals_tot), features) %>% 
+            mutate(WeekNum = week(Week@yearmonth),    # simple seasonality
+                   Month   = factor(month(Week@yearmonth))) %>% 
+            as_tsibble(index = Week)
+
+# ──────────────────────────────────────────────────────────────
+# 2.  TRAIN / TEST SPLIT
+# ──────────────────────────────────────────────────────────────
+h      <- 13                         # forecast horizon = 13 weeks
+train  <- head(data_mod, -h)
+test   <- tail(data_mod,  h)
+
+y_train  <- train$Arrivals
+x_train  <- as.matrix(train %>% select(-Week, -Arrivals))
+
+# ──────────────────────────────────────────────────────────────
+# 3.  MODEL 1 – dynamic regression  (ARIMAX)
+# ──────────────────────────────────────────────────────────────
+fit <- auto.arima(y_train, xreg = x_train, seasonal = TRUE,
+                  stepwise = FALSE, approximation = FALSE)
+
+# ──────────────────────────────────────────────────────────────
+# 4.  FORECAST EXOGENOUS REGRESSORS FOR THE NEXT 13 WEEKS
+# ──────────────────────────────────────────────────────────────
+# 4a.  Forecast visas issued totals; the most important driver
+issued_tot <- ts(wide$VisasIssued_tot, frequency = 52)
+fc_issued  <- forecast(auto.arima(issued_tot), h = h)$mean
+
+# 4b.  Build future feature matrix
+future_tbl <- tail(data_mod, 4) %>%           # keep last 4 rows for lag calculation
+               as_tibble()
+
+for (i in 1:h){
+  
+  next_row <- future_tbl %>% slice_tail(n = 1) %>% 
+     mutate(Week = Week + 1,
+            VisasIssued_tot = fc_issued[i])          # replace with forecast
+  
+  future_tbl <- bind_rows(future_tbl, next_row)
+}
+
+future_tbl <- tail(future_tbl, h)                    # keep the 13 new rows
+
+# recompute *all* engineered features for the combined data --------------------
+all_combined <- bind_rows(
+                    data_mod %>% as_tibble(),
+                    future_tbl) %>% 
+               arrange(Week)
+
+future_features <- tail(all_combined, h) %>% 
+                   as_tsibble(index = Week)          # keep only xreg columns
+x_future <- as.matrix(future_features %>% select(-Week, -Arrivals))
+
+# ──────────────────────────────────────────────────────────────
+# 5.  ARRIVALS FORECAST
+# ──────────────────────────────────────────────────────────────
+fc_arrivals <- forecast(fit, xreg = x_future, h = h)
+
+autoplot(fc_arrivals) +
+  ggtitle("Forecast : Arrivals of Ukrainian visa-holders (next 3 months)")
+
+print(fc_arrivals$mean)       # point forecasts
+print(fc_arrivals$lower)      # 80/95% intervals
+print(fc_arrivals$upper)
+
+# ──────────────────────────────────────────────────────────────
+# 6.  SIMPLE ACCURACY CHECK ON THE HOLD-OUT SET
+# ──────────────────────────────────────────────────────────────
+accuracy(fc_arrivals, test$Arrivals)
+```
+
+------------------------------------------------------------------
+5.  Why this works & what to tweak
+------------------------------------------------------------------
+1.  Visa-issued lags (0-4 weeks) represent the empirical travel delay; they are
+    usually the strongest predictors.
+2.  The backlog adds a “reservoir” effect: if many people already hold a visa,
+    arrivals can stay high even when weekly issuance falls.
+3.  By letting auto.arima model the regression errors we absorb any residual
+    autocorrelation or weekly seasonality left in the target.
+4.  We separately forecast “visas issued”, otherwise the xreg matrix would be unknown
+    in the future.  If you have more leading information (e.g. policy changes,
+    transport capacity) add it to that forecast.
+5.  The whole pipeline is fast, transparent and entirely in base-R + forecast.
+
+------------------------------------------------------------------
+6.  Possible extensions
+------------------------------------------------------------------
+• Estimate the empirical distribution of “issue → arrival” delay from historical
+  micro-data and convolve it with the visas-issued forecast (survival-type model).  
+• Switch to a multivariate VAR on {Applications, Issued, Arrivals}.  
+• Use a count-time-series model (tscount::tsglm with NegBin errors) if arrivals are
+  small or highly over-dispersed.  
+• Add external regressors: air/rail ticket sales, government announcements, etc.  
+• Create a hierarchical model so that scheme-level forecasts reconcile exactly to
+  the national total (fabletools::reconcile).
+
+------------------------------------------------------------------
+7.  Deliverables
+------------------------------------------------------------------
+1. R script (above)  
+2. README explaining required input columns  
+3. PNG (or HTML) with forecast plot and 80/95 % prediction intervals
+
+With this you can generate, audit and update 3-month forecasts of Ukrainian
+arrivals every week with one command:  source("forecast_arrivals.R").

@@ -1,0 +1,57 @@
+Designing the method and feature engineering:
+
+1. Calculate the visa acceptance rate: This is the ratio of visas issued to visa applications. This feature might help us to get an understanding of how likely a visa application will result in an actual visa being issued.
+   
+2. Categorize the visa types: We can create three binary variables ("Ukraine Family Scheme", "Ukraine Sponsorship Scheme", "Government sponsored"). If the type of visa correlates with the likelihood of the person arriving in the country, this feature could help us improving the forecast.
+   
+3. Calculate the arrival rate: This is the ratio of people with visas arriving in the country to the visas issued. High arrival rate in the past can hint towards high arrivals in the future as well.
+   
+4. Time-series features: Extract features from the date column which could be year, month, week, etc. Seasonal trends might exist in the data.
+   
+5. Lagged features: Number of visa applications, visas issued, arrival rates, and visa acceptance rate from previous weeks. This assumes that the values in recent past are useful to forecast the future arrivals.
+   
+6. Moving averages: Moving averages can identify trends in time-series data.
+
+Now let’s implement the design:
+
+```R
+library(dplyr)
+library(lubridate)
+library(forecast)
+
+# Assuming visaData is a dataframe containing weekly totals of visa data
+
+# Feature Engineering
+visaData$v_acceptance_rate <- visaData$visas_issued / visaData$visa_applications
+
+visaData <- mutate(visaData,  
+                   ukraine_family_scheme = ifelse(type_of_visa == "Ukraine Family Scheme", 1, 0),
+                   ukraine_sponsorship_scheme = ifelse(type_of_visa == "Ukraine Sponsorship Scheme", 1, 0),
+                   government_sponsored = ifelse(type_of_visa == "Government sponsored", 1, 0),
+                   )
+
+visaData$arrival_rate <- visaData$people_arriving / visaData$visas_issued
+
+# Create lagged features
+lags <- 1:3
+for (i in seq_along(lags)) {
+  visaData <- visaData %>%
+    mutate(!!paste0("lag_", lags[i], "_applications") := lag(visaData$visa_applications, n = lags[i])) %>%
+    mutate(!!paste0("lag_", lags[i], "_issued") := lag(visaData$visas_issued, n = lags[i])) %>%
+    mutate(!!paste0("lag_", lags[i], "_arrival_rate") := lag(visaData$arrival_rate, n = lags[i])) %>%
+    mutate(!!paste0("lag_", lags[i], "_acceptance_rate") := lag(visaData$v_acceptance_rate, n = lags[i]))
+}
+
+# Create moving averages
+visaData <- visaData %>% mutate(ma_applications = rollmean(visaData$visa_applications, 3, fill = NA))
+visaData <- visaData %>% mutate(ma_issues = rollmean(visaData$visas_issued, 3, fill = NA))
+
+# Using the transformed dataset to build a forecasting model
+predictors <- visaData[!(colnames(visaData) %in% 'people_arriving')]
+people_arriving_ts <- ts(visaData$people_arriving, start = c(year(min(visaData$week)), 1), frequency = 52)
+
+auto_arima_model <- auto.arima(people_arriving_ts, xreg = predictors)
+forecast(auto_arima_model, xreg = tail(predictors, 3))
+```
+
+Please replace `year(min(visaData$week))` with the actual start year and `tail(predictors, 3)` with the number of weeks for which the prediction is needed.
