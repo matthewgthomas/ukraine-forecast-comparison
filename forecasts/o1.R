@@ -1,62 +1,8 @@
-Below is one example of how you might approach forecasting the number of incoming arrivals from Ukraine over the next 3 months (12 weeks). The method proceeds in three main steps:
+# Manual edits:
+# - Loaded the correct data
+# - Changed column names
 
-1) Data Preparation and Feature Engineering  
-2) Model Training (using a time series regression/ARIMAX)  
-3) Forecasting the next 12 weeks  
-
---------------------------------------------------------------------------------
-1) Data Preparation and Feature Engineering
---------------------------------------------------------------------------------
-
-Given weekly data for:  
-• visa_applications (weekly total)  
-• visas_issued (weekly total)  
-• visa_type (“Ukraine Family Scheme”, “Ukraine Sponsorship Scheme”, “Government-sponsored”)  
-• arrivals (people with visas arriving per week)  
-
-You can enrich the data with additional features that might help the model better predict arrivals:  
-
-• Lagged Values:  
-  – arrivals_lag1: the previous week’s arrivals.  
-  – visas_issued_lag1, visas_issued_lag2, etc.  
-  – visa_applications_lag1, etc.  
-
-• Conversion Ratios:  
-  – issue_rate = visas_issued / visa_applications (the proportion of applications that get converted into visas).  
-  – arrival_rate = arrivals / visas_issued (the proportion of issued visas that lead to actual arrivals in a given week).  
-
-• Cumulative/Backlog Features:  
-  – backlog_of_issued = cumulative sum of visas_issued − cumulative sum of arrivals, indicating how many people hold a visa but have not arrived yet.  
-
-• Visa Type "Shares":  
-  – For each type of visa, compute the fraction of that visa type out of total visas issued. For instance, fraction_family = number of “Ukraine Family Scheme” visas / total visas issued in that week.  
-
-Include (or exclude) features based on correlation with the target (arrivals) or by experimenting in model selection.
-
---------------------------------------------------------------------------------
-2) Model Training
---------------------------------------------------------------------------------
-
-A good baseline approach is a time series model (e.g., auto.arima in R) that incorporates exogenous regressors (the newly engineered features). This is often called ARIMAX (ARIMA with eXogenous variables).  
-
-High-level steps:  
-1. Convert your data (weekly) to a time series or tsibble.  
-2. Split your data into a training set (all but the last N weeks) and test set (last N weeks) to assess performance. Alternatively, use time-series cross-validation.  
-3. Fit a model (e.g., auto.arima with xreg = your chosen features).  
-4. Evaluate the model using MAPE or RMSE on the test set.  
-5. Once satisfied, refit the final model on all the available data and forecast forward 12 weeks.  
-
---------------------------------------------------------------------------------
-3) Forecasting
---------------------------------------------------------------------------------
-
-Use the trained model to produce forecasts of arrivals in future weeks. You will need forecasts (or assumptions) of your exogenous regressors (e.g., expected visa applications, expected visas_issued etc.) over the same forecast horizon. If you do not have direct forecasts for these regressors, you can model them separately or make reasoned assumptions (e.g. stable trend, seasonality) and feed them in.  
-
-Below is an illustrative R script (using fictional data) that shows how you might implement an ARIMAX-based approach.
-
---------------------------------------------------------------------------------
-Example R Script
---------------------------------------------------------------------------------
+# `auto.arima()` throws an error ("xreg is rank deficient"). Haven't bothered trying to fix it.
 
 ###############################################################################
 # 1) Simulate or load your data
@@ -74,29 +20,54 @@ library(lubridate)
 set.seed(123)
 
 # Suppose we have 50 weeks of historical data
-n_weeks <- 50
-dates <- seq(ymd("2022-01-01"), by = "week", length.out = n_weeks)
+# n_weeks <- 50
+# dates <- seq(ymd("2022-01-01"), by = "week", length.out = n_weeks)
 
-# Simulated data
-visa_applications <- rpois(n_weeks, lambda = 500)
-visas_issued      <- round(0.8 * visa_applications + rnorm(n_weeks, sd = 30))
-arrivals          <- round(0.6 * visas_issued       + rnorm(n_weeks, sd = 20))
+# # Simulated data
+# visa_applications <- rpois(n_weeks, lambda = 500)
+# visas_issued      <- round(0.8 * visa_applications + rnorm(n_weeks, sd = 30))
+# arrivals          <- round(0.6 * visas_issued       + rnorm(n_weeks, sd = 20))
 
-# Simulate the proportion of each type of visa (they sum to 1 each week)
-frac_family       <- runif(n_weeks, 0.3, 0.5)
-frac_sponsorship  <- runif(n_weeks, 0.2, 0.4)
-frac_gov          <- 1 - frac_family - frac_sponsorship
+# # Simulate the proportion of each type of visa (they sum to 1 each week)
+# frac_family       <- runif(n_weeks, 0.3, 0.5)
+# frac_sponsorship  <- runif(n_weeks, 0.2, 0.4)
+# frac_gov          <- 1 - frac_family - frac_sponsorship
 
-# Create a data frame
-df <- data.frame(
-  week = dates,
-  visa_applications = visa_applications,
-  visas_issued      = visas_issued,
-  arrivals          = arrivals,
-  frac_family       = frac_family,
-  frac_sponsorship  = frac_sponsorship,
-  frac_gov          = frac_gov
-)
+# # Create a data frame
+# df <- data.frame(
+#   week = dates,
+#   visa_applications = visa_applications,
+#   visas_issued      = visas_issued,
+#   arrivals          = arrivals,
+#   frac_family       = frac_family,
+#   frac_sponsorship  = frac_sponsorship,
+#   frac_gov          = frac_gov
+# )
+
+df <- read.csv("data/visas-weekly-training.csv")
+df <- rename(df, week = date)
+df$week <- as.Date(df$week)
+
+# Calculate the proportions of visa applications/issued and arrivals for each type of visa
+df <- df |> 
+  tidyr::pivot_wider(
+    names_from = visa_type, 
+    values_from = c(applications, visas_issued, arrivals),
+    values_fill = 0
+  ) |> 
+
+  group_by(week) |> 
+  summarise(
+    applications =  `applications_Ukraine Family Scheme` + `applications_Government sponsored` + `applications_Ukraine Sponsorship Scheme`,
+    visas_issued = `visas_issued_Ukraine Family Scheme` + `visas_issued_Ukraine Sponsorship Scheme` + `visas_issued_Government sponsored`,
+    arrivals = `arrivals_Ukraine Family Scheme` + `arrivals_Ukraine Sponsorship Scheme` + `arrivals_Government sponsored`,
+
+    frac_family = `visas_issued_Ukraine Family Scheme` / visas_issued,
+    frac_sponsorship = `visas_issued_Ukraine Sponsorship Scheme` / visas_issued,
+    frac_gov = `visas_issued_Government sponsored` / visas_issued
+  )
+
+
 
 ###############################################################################
 # 2) Feature Engineering
@@ -105,8 +76,8 @@ df <- data.frame(
 df <- df %>%
   mutate(
     # Example new features:
-    issue_rate        = ifelse(visa_applications > 0,
-                               visas_issued / visa_applications, 0),
+    issue_rate        = ifelse(applications > 0,
+                               visas_issued / applications, 0),
     backlog_of_issued = cumsum(visas_issued) - cumsum(arrivals),
     arrivals_lag1     = dplyr::lag(arrivals, 1),
     visas_issued_lag1 = dplyr::lag(visas_issued, 1)
@@ -157,6 +128,7 @@ X_test  <- X[(train_size+1):nrow(df), ]
 
 # auto.arima can select p, d, q automatically; we supply exogenous regressor X.
 fit <- auto.arima(y_train, xreg = X_train, stepwise = FALSE, approximation = FALSE)
+#--> Throwing an error: xreg is rank deficient
 
 # Check model summary
 summary(fit)
@@ -202,14 +174,3 @@ fcast_final <- forecast(fit_final, xreg = X_future, h = future_weeks)
 
 # Print final forecast of arrivals
 print(fcast_final)
-
-################################################################################
-# End of Example
-################################################################################
-
-Notes & Next Steps:
-• In a real-world scenario, you would forecast or estimate the future exogenous variables (visa_applications, visas_issued, etc.), rather than simply replicating the last known historical values.  
-• Evaluate multiple models (e.g., different ARIMAX, TBATS with regressors, or neural-network based models using the "forecast" or "fable" ecosystems) to see which model best fits the data.  
-• Continuously update your model(s) with the latest weekly data and reassess performance.  
-
-This general workflow – building meaningful features, fitting a time series model with exogenous regressors, and then forecasting – should give you a solid starting point for predicting the number of arrivals from Ukraine in the coming weeks.

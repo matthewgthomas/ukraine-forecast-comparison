@@ -1,3 +1,7 @@
+# Manual edits:
+# - Loaded the correct data
+# - Changed column names
+
 # ──────────────────────────────────────────────────────────────
 #  Libraries
 # ──────────────────────────────────────────────────────────────
@@ -12,8 +16,22 @@ library(tsibble)       # tidy time series
 #     columns required in the csv: Week, Scheme, Applications,
 #     VisasIssued, Arrivals
 # ──────────────────────────────────────────────────────────────
-raw <- read_csv("ukraine_visa_weekly.csv") %>% 
-        mutate(Week = yearweek(Week))         # coercion to <tsibble::yearweek>
+raw <- read_csv("data/visas-weekly-training.csv") %>% 
+        mutate(Week = yearweek(as.Date(date)))         # coercion to <tsibble::yearweek>
+
+raw <- raw |> 
+  rename(
+    Scheme = visa_type,
+    Applications = applications,
+    VisasIssued = visas_issued,
+    Arrivals = arrivals
+  ) |> 
+  mutate(Scheme = case_when(
+      Scheme == "Government sponsored" ~ "GS",
+      Scheme == "Ukraine Sponsorship Scheme" ~ "SS",
+      Scheme == "Ukraine Family Scheme" ~ "FS",
+      .default = Scheme
+    ))
 
 # Pivot to one row per week, keep scheme level AND totals ----------------------
 wide <- raw %>% 
@@ -31,6 +49,12 @@ wide <- raw %>%
          pivot_wider(names_from = Scheme, values_from = c(Applications, VisasIssued),
                      names_sep = "_"),
        by = "Week")
+
+wide <- wide |> 
+  mutate(
+    Applications_tot = Applications_FS_tot + Applications_GS_tot + Applications_SS_tot,
+    VisasIssued_tot = VisasIssued_FS + VisasIssued_GS + VisasIssued_SS
+  )
 
 # Keep the time order
 wide <- wide %>% arrange(Week)
@@ -64,8 +88,8 @@ schemes <- c("FS","SS","GS","tot")          # abbreviations
 features <- map_dfc(schemes, ~make_features(wide, .x))
 
 data_mod <- bind_cols(wide %>% select(Week, Arrivals = Arrivals_tot), features) %>% 
-            mutate(WeekNum = week(Week@yearmonth),    # simple seasonality
-                   Month   = factor(month(Week@yearmonth))) %>% 
+            mutate(WeekNum = week(as.Date(Week)),    # simple seasonality
+                   Month   = month(as.Date(Week))) %>% 
             as_tsibble(index = Week)
 
 # ──────────────────────────────────────────────────────────────
@@ -76,7 +100,29 @@ train  <- head(data_mod, -h)
 test   <- tail(data_mod,  h)
 
 y_train  <- train$Arrivals
-x_train  <- as.matrix(train %>% select(-Week, -Arrivals))
+x_train  <- as.matrix(as_tibble(train) %>% select(-Week, -Arrivals))
+
+
+# Drop all-NA/zero-variance columns and fill remaining NA with 0s
+prep_xreg <- function(df, keep_cols = NULL) {
+  x <- df %>% select(-Week, -Arrivals)
+  if (is.null(keep_cols)) {
+    keep_cols <- names(x)[vapply(
+      x,
+      function(col) !all(is.na(col)) && var(col, na.rm = TRUE) > 0,
+      logical(1)
+    )]
+  }
+  x <- x %>%
+    select(all_of(keep_cols)) %>%
+    mutate(across(everything(), ~replace_na(.x, 0)))
+  list(mat = as.matrix(x), cols = keep_cols)
+}
+
+y_train   <- train$Arrivals
+train_x   <- prep_xreg(as_tibble(train))
+x_train   <- train_x$mat
+xreg_cols <- train_x$cols
 
 # ──────────────────────────────────────────────────────────────
 # 3.  MODEL 1 – dynamic regression  (ARIMAX)
