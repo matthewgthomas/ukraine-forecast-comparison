@@ -1,0 +1,65 @@
+date,visa_type,applications,visas_issued,arrivals
+2022-03-28,Ukraine Family Scheme,0,0,0
+2022-04-04,Government sponsored,NA,NA,NA
+2022-04-04,Sponsored by individuals,NA,NA,NA
+2022-04-04,Ukraine Family Scheme,3500,4100,0
+2022-04-11,Government sponsored,NA,591,NA
+2022-04-11,Sponsored by individuals,NA,9481,NA
+2022-04-11,Ukraine Family Scheme,2800,2900,2400
+2022-04-18,Government sponsored,NA,1903,NA
+2022-04-18,Sponsored by individuals,NA,11897,NA
+2022-04-18,Ukraine Family Scheme,2100,1100,1800
+2022-04-25,Government sponsored,NA,1131,NA
+2022-04-25,Sponsored by individuals,NA,13728,NA
+2022-04-25,Ukraine Family Scheme,1700,2400,1000
+2022-05-02,Government sponsored,NA,1232,NA
+2022-05-02,Sponsored by individuals,NA,4984,NA
+2022-05-02,Ukraine Family Scheme,1300,1400,1900
+2022-05-09,Government sponsored,NA,1407,NA
+2022-05-09,Sponsored by individuals,NA,5426,NA
+2022-05-09,Ukraine Family Scheme,-1800,1200,1600
+2022-05-16,Government sponsored,NA,843,388
+2022-05-16,Sponsored by individuals,NA,3748,4666
+2022-05-16,Ukraine Family Scheme,1300,1200,1300
+2022-05-23,Government sponsored,1560,1322,398
+2022-05-23,Sponsored by individuals,3592,3665,4088
+2022-05-23,Ukraine Family Scheme,1300,1000,1200
+2022-05-30,Government sponsored,1271,1631,542
+2022-05-30,Sponsored by individuals,3140,4678,4949
+2022-05-30,Ukraine Family Scheme,1000,600,1100
+2022-06-06,Government sponsored,844,781,459
+2022-06-06,Sponsored by individuals,938,1902,3393
+2022-06-06,Ukraine Family Scheme,1300,700,900
+2022-06-13,Government sponsored,1393,736,581
+2022-06-13,Sponsored by individuals,2352,1625,3095
+2022-06-13,Ukraine Family Scheme,1200,1100,1350
+2022-06-20,Government sponsored,7132,4082,1038
+2022-06-20,Sponsored by individuals,7373,4268,4578
+2022-06-20,Ukraine Family Scheme,1200,1100,1350
+2022-06-27,Government sponsored,2627,2123,708
+2022-06-27,Sponsored by individuals,2155,2182,2335
+2022-06-27,Ukraine Family Scheme,1100,900,1100
+2022-07-04,Government sponsored,3913,3830,1086
+2022-07-04,Sponsored by individuals,2038,3000,2898
+2022-07-04,Ukraine Family Scheme,1100,800,900
+2022-07-11,Government sponsored,5874,3278,968
+2022-07-11,Sponsored by individuals,2240,2236,2469
+2022-07-11,Ukraine Family Scheme,300,1000,1000
+2022-07-18,Government sponsored,6825,3260,869
+2022-07-18,Sponsored by individuals,1557,1198,1689
+2022-07-18,Ukraine Family Scheme,1233.3333333333358,766.6666666666642,800
+2022-07-25,Government sponsored,659,2824,1557
+2022-07-25,Sponsored by individuals,1521,1965,2689
+2022-07-25,Ukraine Family Scheme,1233.3333333333285,766.6666666666715,800
+2022-08-01,Government sponsored,93,2302,1504
+2022-08-01,Sponsored by individuals,2267,1836,2292
+2022-08-01,Ukraine Family Scheme,1233.3333333333358,766.6666666666642,800
+2022-08-08,Government sponsored,39,815,1284
+2022-08-08,Sponsored by individuals,1121,1931,1911
+2022-08-08,Ukraine Family Scheme,1000,600,800
+2022-08-15,Government sponsored,69,204,1026
+2022-08-15,Sponsored by individuals,1602,1789,1678
+2022-08-15,Ukraine Family Scheme,800,900,600
+2022-08-22,Government sponsored,0,39,754
+2022-08-22,Sponsored by individuals,1182,1368,1224
+2022-08-22,Ukraine Family Scheme,900,400,600
