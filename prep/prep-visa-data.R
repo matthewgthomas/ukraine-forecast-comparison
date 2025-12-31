@@ -53,10 +53,10 @@ weekly_sponsorship_scheme_visas <-
   arrange(Date) |>
   filter(str_detect(Type, "^Sponsored")) |>
   mutate(
-    visa_type = if_else(
-      str_detect(Type, "Government"),
-      "Government sponsored",
-      Type
+    visa_type = case_when(
+      str_detect(Type, "Government") ~ "Government sponsored",
+      Type == "Sponsored by individuals" ~ "Ukraine Sponsorship Scheme",
+      .default = Type
     )
   ) |>
   # Calculate UK weekly totals
@@ -121,15 +121,15 @@ weekly_visas_by_scheme <- bind_rows(
   # Convert week number to date; source: https://stackoverflow.com/a/46183403
   mutate(date = ymd("2022-01-03") + weeks(week - 1)) |>
   relocate(date) |>
-  select(-week)
+  select(-week) |>
 
-# Replace NAs with zeros
-mutate(
-  across(
-    c(applications, visas_issued, arrivals),
-    ~ replace_na(.x, 0)
+  # Replace NAs with zeros
+  mutate(
+    across(
+      c(applications, visas_issued, arrivals),
+      ~ replace_na(.x, 0)
+    )
   )
-)
 
 # Save
 write_csv(weekly_visas_by_scheme, "data/visas-weekly.csv")
