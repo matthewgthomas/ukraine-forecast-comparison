@@ -1,5 +1,5 @@
 # Manual edits:
-# - Changed data filename
+# - Loaded the correct data
 # - Renamed `Type_of_visa` to `visa_type`
 # - Renamed `visa_applications` to `applications`
 # - Renamed `people_arriving_with_visas` to `arrivals`
