@@ -31,12 +31,22 @@ gemini <- gemini |>
   mutate(model = "Gemini Pro 3")
 
 # ---- Compare total number of arrivals (rather than visa type-specific) ----
-eval_df <- 
+eval_weekly <- 
   bind_rows(brc_simulation, claude, gemini) |> 
   left_join(actual_arrivals, by = "date")
 
-# ---- Compute error metrics ----
-metrics <- eval_df |>
+# Aggregate to total arrivals over the entire three month period for each model
+eval_total <- eval_weekly |> 
+  group_by(model) |> 
+  summarise(
+    forecast_arrivals = sum(forecast_arrivals),
+    actual_arrivals = sum(actual_arrivals)
+  ) |> 
+  ungroup()
+
+# ---- Helper functions to compute error metrics ----
+calculate_errors <- function(df) {
+  df |>
   mutate(
     error = forecast_arrivals - actual_arrivals,
     abs_error = abs(error),
@@ -46,7 +56,11 @@ metrics <- eval_df |>
       NA_real_,
       abs_error / abs(actual_arrivals) * 100
     )
-  ) |>
+  )
+}
+
+calculate_metrics <- function(df) {
+  df |>
   group_by(model) |>
   summarise(
     n_forecasts = n(),
@@ -57,7 +71,20 @@ metrics <- eval_df |>
     .groups = "drop"
   ) |>
   arrange(mae)
+}
 
-metrics
+# ---- Evaluate forecasts ----
+# How well did each model do on weekly arrivals?
+errors_weekly <- calculate_errors(eval_weekly)
+metrics_weekly <- calculate_metrics(errors_weekly)
 
-write_csv(metrics, "data/forecast-evaluation.csv")
+metrics_weekly
+
+write_csv(metrics_weekly, "data/forecast-evaluation.csv")
+
+# How well did each model do on total arrivals?
+errors_total <- calculate_errors(eval_total)
+metrics_total <- calculate_metrics(errors_total)
+
+metrics_total
+write_csv(metrics_total, "data/forecast-evaluation-total.csv")
