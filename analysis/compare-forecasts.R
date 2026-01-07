@@ -28,13 +28,22 @@ claude_forecast <- claude_forecast |>
   select(date = forecast_date, forecast_arrivals = ensemble) |> 
   mutate(model = "Claude Sonnet 4.5 (forecast)")
 
-gemini <- read_rds("simulations/data/gemini-pro-3-forecast.rds")
+gemini_sim <- read_rds("simulations/data/gemini-pro-3-forecast.rds")
 
-gemini <- gemini |> 
+gemini_sim <- gemini_sim |> 
   group_by(date = Week) |> 
   summarise(forecast_arrivals = sum(Expected_Arrival_Flow)) |> 
   ungroup() |> 
-  mutate(model = "Gemini Pro 3")
+  mutate(model = "Gemini Pro 3 (simulation)")
+
+gemini_forecast <- read_csv("forecasts2/data/gemini-pro-3-forecast.csv")
+
+# These forecasts are cumulative; convert to weekly
+gemini_forecast <- gemini_forecast |> 
+  arrange(Week) |> 
+  mutate(forecast_arrivals = Total_Predicted_Arrivals - lag(Total_Predicted_Arrivals, default = 0)) |> 
+  select(data = Week, forecast_arrivals) |> 
+  mutate(model = "Gemini Pro 3 (forecast)")
 
 gpt_3_5_forecast <- read_rds("forecasts/data/forecast-gpt-3.5-turbo.rds")
 
@@ -66,7 +75,16 @@ gpt_4_1 <- tibble(
 
 # ---- Compare total number of arrivals (rather than visa type-specific) ----
 eval_weekly <- 
-  bind_rows(brc_simulation, claude_sim, claude_forecast, gemini, gpt_3_5, gpt_4o, gpt_4_1) |> 
+  bind_rows(
+    brc_simulation, 
+    claude_sim,
+    claude_forecast,
+    gemini_sim,
+    gemini_forecast, 
+    gpt_3_5, 
+    gpt_4o, 
+    gpt_4_1
+  ) |> 
   left_join(actual_arrivals, by = "date")
 
 # Aggregate to total arrivals over the entire three month period for each model
