@@ -40,4 +40,4 @@ forecast <- forecast(model, h = 12) # Forecast for the next 3 months (12 weeks)
 # Print forecast
 print(forecast)
 
-readr::write_rds(forecast, "data/forecast-gpt-3.5-turbo.rds")
+readr::write_rds(forecast, "forecasts/data/forecast-gpt-3.5-turbo.rds")
