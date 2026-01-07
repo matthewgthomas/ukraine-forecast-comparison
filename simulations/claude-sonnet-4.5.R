@@ -5,43 +5,66 @@ library(tidyverse)
 library(forecast)
 library(lubridate)
 
+# Load actual data
+data <- read_csv("data/visas-weekly-training.csv")
+
+# Reformat data to match what the code below is expecting
+data <- data |> 
+  mutate(week = week(date)) |>
+  rename(
+    app = applications,
+    issued = visas_issued
+  ) |> 
+  mutate(visa_type = case_match(
+    visa_type,
+    "Ukraine Family Scheme"     ~ "family",
+    "Ukraine Sponsorship Scheme" ~ "sponsor",
+    "Government sponsored"       ~ "govt"
+  )) |>
+  pivot_wider(
+    names_from = visa_type,
+    values_from = c(app, issued, arrivals),
+    names_sep = "_"
+  )
+
 # Generate synthetic historical data (52 weeks)
-set.seed(42)
-n_weeks <- 52
+# set.seed(42)
+# n_weeks <- 52
+n_weeks <- length(unique(data$date))
 
-data <- tibble(
-  week = 1:n_weeks,
-  date = seq(today() - weeks(n_weeks), by = "week", length.out = n_weeks),
+# data <- tibble(
+#   week = 1:n_weeks,
+#   date = seq(today() - weeks(n_weeks), by = "week", length.out = n_weeks),
   
-  # Visa applications by type
-  app_family = rpois(n_weeks, lambda = 150) + 50 * sin(2*pi*week/52),
-  app_sponsor = rpois(n_weeks, lambda = 200) + 70 * sin(2*pi*week/52),
-  app_govt = rpois(n_weeks, lambda = 80) + 30 * sin(2*pi*week/52),
+#   # Visa applications by type
+#   app_family = rpois(n_weeks, lambda = 150) + 50 * sin(2*pi*week/52),
+#   app_sponsor = rpois(n_weeks, lambda = 200) + 70 * sin(2*pi*week/52),
+#   app_govt = rpois(n_weeks, lambda = 80) + 30 * sin(2*pi*week/52),
   
-  # Visas issued (with processing lag and approval rate)
-  issued_family = NA,
-  issued_sponsor = NA,
-  issued_govt = NA,
+#   # Visas issued (with processing lag and approval rate)
+#   issued_family = NA,
+#   issued_sponsor = NA,
+#   issued_govt = NA,
   
-  # Arrivals (with travel lag)
-  arrivals_family = NA,
-  arrivals_sponsor = NA,
-  arrivals_govt = NA
-)
+#   # Arrivals (with travel lag)
+#   arrivals_family = NA,
+#   arrivals_sponsor = NA,
+#   arrivals_govt = NA
+# )
 
-# Simulate visas issued (2-4 week lag, 85-95% approval rate)
-for(i in 4:n_weeks) {
-  data$issued_family[i] <- rbinom(1, round(data$app_family[i-3]), 0.90)
-  data$issued_sponsor[i] <- rbinom(1, round(data$app_sponsor[i-3]), 0.88)
-  data$issued_govt[i] <- rbinom(1, round(data$app_govt[i-2]), 0.92)
-}
+# # Simulate visas issued (2-4 week lag, 85-95% approval rate)
+# for(i in 4:n_weeks) {
+#   data$issued_family[i] <- rbinom(1, round(data$app_family[i-3]), 0.90)
+#   data$issued_sponsor[i] <- rbinom(1, round(data$app_sponsor[i-3]), 0.88)
+#   data$issued_govt[i] <- rbinom(1, round(data$app_govt[i-2]), 0.92)
+# }
 
-# Simulate arrivals (1-6 week lag after visa issued, 70-80% travel rate)
-for(i in 7:n_weeks) {
-  data$arrivals_family[i] <- rbinom(1, data$issued_family[i-4], 0.75)
-  data$arrivals_sponsor[i] <- rbinom(1, data$issued_sponsor[i-5], 0.72)
-  data$arrivals_govt[i] <- rbinom(1, data$issued_govt[i-3], 0.78)
-}
+# # Simulate arrivals (1-6 week lag after visa issued, 70-80% travel rate)
+# for(i in 7:n_weeks) {
+#   data$arrivals_family[i] <- rbinom(1, data$issued_family[i-4], 0.75)
+#   data$arrivals_sponsor[i] <- rbinom(1, data$issued_sponsor[i-5], 0.72)
+#   data$arrivals_govt[i] <- rbinom(1, data$issued_govt[i-3], 0.78)
+# }
 
 # Calculate totals
 data <- data %>%
@@ -112,7 +135,10 @@ reg_data <- train_data %>%
          travel_rate, trend, app_issued_ratio) %>%
   drop_na()
 
-reg_model <- lm(reg_formula, data = reg_data)
+reg_data_clean <- reg_data |>
+  filter(if_all(everything(), ~ !is.na(.) & is.finite(.)))
+
+reg_model <- lm(reg_formula, data = reg_data_clean)
 print(summary(reg_model))
 
 # MODEL 3: Ensemble combining ARIMA and features
@@ -129,7 +155,13 @@ ensemble_data <- train_data %>%
          travel_rate, trend) %>%
   drop_na()
 
-ensemble_model <- lm(ensemble_formula, data = ensemble_data)
+#ensemble_model <- lm(ensemble_formula, data = ensemble_data)
+
+ensemble_data_clean <- ensemble_data |>
+  filter(if_all(everything(), ~ !is.na(.) & is.finite(.)))
+
+ensemble_model <- lm(ensemble_formula, data = ensemble_data_clean)
+
 print(summary(ensemble_model))
 
 # FORECAST NEXT 12 WEEKS (3 months)
@@ -248,3 +280,5 @@ cat("- Lagged visa issuances (4 weeks)\n")
 cat("- Moving averages (4 weeks)\n")
 cat("- Approval and travel rates\n")
 cat("- Time trends\n")
+
+write_rds(forecast_data, "simulations/data/claude-sonnet-4.5.rds")
