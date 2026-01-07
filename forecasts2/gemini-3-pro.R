@@ -2,37 +2,49 @@
 library(tidyverse)
 library(fpp3)
 
-set.seed(123)
+# set.seed(123)
 
-# Create dummy dates for 22 weeks of history
-dates <- seq(as.Date("2024-01-01"), by = "week", length.out = 22)
+# # Create dummy dates for 22 weeks of history
+# dates <- seq(as.Date("2024-01-01"), by = "week", length.out = 22)
 
-# Generate synthetic data for 3 visa types
-# We simulate a "pulse" of applications that is slowing down
-visa_types <- c("Ukraine Family Scheme", "Ukraine Sponsorship Scheme", "Government sponsored")
+# # Generate synthetic data for 3 visa types
+# # We simulate a "pulse" of applications that is slowing down
+# visa_types <- c("Ukraine Family Scheme", "Ukraine Sponsorship Scheme", "Government sponsored")
 
-generate_series <- function(v_type) {
-  t <- 1:22
-  # Applications: downward trend with noise
-  apps <- pmax(10, as.integer(1000 * exp(-0.1 * t) + rnorm(22, 0, 50)))
+# generate_series <- function(v_type) {
+#   t <- 1:22
+#   # Applications: downward trend with noise
+#   apps <- pmax(10, as.integer(1000 * exp(-0.1 * t) + rnorm(22, 0, 50)))
   
-  # Issued: 80% of apps, lagged by approx 1 week (simplified)
-  issued <- as.integer(lag(apps, 1, default = 800) * 0.8 + rnorm(22, 0, 20))
+#   # Issued: 80% of apps, lagged by approx 1 week (simplified)
+#   issued <- as.integer(lag(apps, 1, default = 800) * 0.8 + rnorm(22, 0, 20))
   
-  # Arrivals: 60% of issued, lagged by approx 2 weeks
-  arrivals <- as.integer(lag(issued, 2, default = 500) * 0.6 + rnorm(22, 0, 30))
+#   # Arrivals: 60% of issued, lagged by approx 2 weeks
+#   arrivals <- as.integer(lag(issued, 2, default = 500) * 0.6 + rnorm(22, 0, 30))
   
-  tibble(
-    Week = dates,
-    VisaType = v_type,
-    Applications = apps,
-    Issued = issued,
+#   tibble(
+#     Week = dates,
+#     VisaType = v_type,
+#     Applications = apps,
+#     Issued = issued,
+#     Arrivals = arrivals
+#   )
+# }
+
+# # Combine into a tsibble (Time Series Tibble)
+# data_tbl <- map_dfr(visa_types, generate_series) %>%
+#   as_tsibble(index = Week, key = VisaType)
+
+data_tbl <- read_csv("data/visas-weekly-training.csv")
+
+data_tbl <- data_tbl |> 
+  rename(
+    Week = date,
+    VisaType = visa_type,
+    Applications = applications,
+    Issued = visas_issued,
     Arrivals = arrivals
-  )
-}
-
-# Combine into a tsibble (Time Series Tibble)
-data_tbl <- map_dfr(visa_types, generate_series) %>%
+  ) |> 
   as_tsibble(index = Week, key = VisaType)
 
 # 2. Feature Engineering -------------------------------------------------------
@@ -93,8 +105,12 @@ arrival_model_robust <- data_features %>%
   )
 
 # We feed the *forecasted* Issued values (from Step 1) into the Arrival model
+future_data <- issued_forecast %>%
+  as_tsibble() %>%
+  select(Week, VisaType, Issued = .mean)
+
 final_forecast <- arrival_model_robust %>%
-  forecast(new_data = issued_forecast)
+  forecast(new_data = future_data)
 
 # 5. Visualization -------------------------------------------------------------
 final_forecast %>%
@@ -115,3 +131,5 @@ total_forecast <- final_forecast %>%
   )
 
 print(head(total_forecast))
+
+write_csv(total_forecast, "forecasts2/data/gemini-pro-3-forecast.csv")
