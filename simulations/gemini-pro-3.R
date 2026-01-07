@@ -185,4 +185,4 @@ total_prediction <- fc_arrivals %>%
 print(paste("Total predicted arrivals in next 3 months:", round(total_prediction$Total_Predicted_Arrivals)))
 print(total_prediction)
 
-write_rds(fc_arrivals, "simulations/gemini-pro-3-forecast.rds")
+write_rds(fc_arrivals, "simulations/data/gemini-pro-3-forecast.rds")
