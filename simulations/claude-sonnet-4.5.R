@@ -1,3 +1,8 @@
+# Manual edits
+# - Load actual data and reformat it
+# - Fixed missing data when fitting models
+# - Saved forecast data
+
 # Ukraine Arrivals Forecasting Simulation
 # Predicts arrivals for next 3 months based on visa data
 
