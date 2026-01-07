@@ -1,0 +1,239 @@
+Below is a general approach for forecasting the number of people arriving from Ukraine in the next three months (i.e., 12 weeks), given 22 weeks of historical data on:
+
+• Weekly visa applications  
+• Weekly visas issued  
+• Type of visa (“Ukraine Family Scheme,” “Ukraine Sponsorship Scheme,” or “Government sponsored”)  
+• Weekly arrivals (the target to forecast)  
+
+Because we only have 22 weeks of data, it is a short time series. That imposes certain limitations on model complexity. Nevertheless, you can follow these steps to make the most of the available information, potentially engineering additional features to improve model performance.
+
+────────────────────────────────────────────────────────────────────────
+1. Organize and Explore the Data
+────────────────────────────────────────────────────────────────────────
+
+1.1 Collect data in a single data frame (df).  
+   Ensure df has (at least) these columns (one row per week):
+   • week_ending or some weekly time indicator  
+   • arrivals (the target variable)  
+   • visa_applications  
+   • visas_issued  
+   • family_scheme_issued (if broken out)  
+   • sponsorship_scheme_issued (if broken out)  
+   • government_sponsored_issued (if broken out)  
+
+1.2 Basic Exploratory Data Analysis (EDA).  
+   • Plot arrivals over time to check for trends or seasonality.  
+   • Check cross-correlations between arrivals and the other variables, potentially at various lags (for example, the number of visas issued 1 or 2 weeks prior may correlate with arrivals in subsequent weeks).  
+   • Confirm no obvious data quality issues (missing values, outliers, etc.).  
+
+────────────────────────────────────────────────────────────────────────
+2. Feature Engineering
+────────────────────────────────────────────────────────────────────────
+
+Because you have counts of visa applications and visas issued by type, you can create additional features that may help the forecasting model. Examples:
+
+2.1 Lagged Features  
+   • Lag the explanatory variables, because the effect of issued visas on arrivals may not occur in the same week. For instance:
+     – L1_visas_issued = visas_issued lagged by 1 week  
+     – L2_visas_issued = visas_issued lagged by 2 weeks  
+     – Similarly for visa_applications.  
+   • You might discover that arrivals correlate with the sum of visas_issued in the previous 2 or 3 weeks.
+
+2.2 Proportions of Visa Types  
+   • Instead of only using the counts of visas by type, consider the proportion of each visa type as part of total visas issued. For example:
+       prop_family  = family_scheme_issued / visas_issued  
+       prop_sponsor = sponsorship_scheme_issued / visas_issued  
+       prop_govt    = government_sponsored_issued / visas_issued  
+   • These proportions might capture changes in the composition of visas issued that affect arrival patterns.
+
+2.3 Differences or Growth Rates  
+   • If there is a trend, you might look at weekly differences, e.g.:
+       diff_issued = visas_issued - dplyr::lag(visas_issued, 1)
+     or growth rates such as:
+       growth_issued = visas_issued / dplyr::lag(visas_issued, 1) - 1
+
+Each new feature can be tested in the model to see if it improves out-of-sample forecasting performance.
+
+────────────────────────────────────────────────────────────────────────
+3. Build a Forecasting Model
+────────────────────────────────────────────────────────────────────────
+
+Given the short (22-week) time series and the presence of external regressors (visa data), a reasonable starting point is an ARIMAX (AutoRegressive Integrated Moving Average with eXogenous regressors) model or a simple regression model with time series errors. Below is an outline using the forecast package (or its successor fable, or the newer fable/fabletools packages) in R. The example below uses the older “forecast” package for illustration.
+
+Example code assumes you have a data frame df with columns:
+• date (or numeric week index)  
+• arrivals (target)  
+• visas_issued  
+• visa_applications  
+• family_scheme_issued  
+• sponsorship_scheme_issued  
+• government_sponsored_issued  
+
+Also assume you have performed any desired feature engineering beforehand. Comments in code will highlight possible steps.
+
+────────────────────────────────────────────────────────────────────────
+4. Example R Code
+────────────────────────────────────────────────────────────────────────
+
+###############################################################################
+# 0. Load required packages
+###############################################################################
+# install.packages("forecast")  # if not installed
+library(forecast)
+library(dplyr)
+
+###############################################################################
+# 1. Read and prepare data
+###############################################################################
+# Suppose df has columns: date, arrivals, visas_issued, visa_applications, 
+# family_scheme_issued, sponsorship_scheme_issued, government_sponsored_issued.
+# Also assume your date column is weekly and is in ascending order.
+
+# Example:
+# df <- read.csv("ukraine_visa_data.csv")
+
+# For demonstration, let's assume df is already loaded in the environment.
+
+###############################################################################
+# 2. Feature engineering
+###############################################################################
+df <- df %>%
+  arrange(date) %>%
+  mutate(
+    # Example of lagging
+    L1_visas_issued = lag(visas_issued, n = 1),
+    L2_visas_issued = lag(visas_issued, n = 2),
+    
+    # Example of proportions
+    total_issued = family_scheme_issued + sponsorship_scheme_issued + government_sponsored_issued,
+    prop_family = if_else(total_issued > 0, family_scheme_issued / total_issued, 0),
+    prop_sponsor = if_else(total_issued > 0, sponsorship_scheme_issued / total_issued, 0),
+    prop_govt = if_else(total_issued > 0, government_sponsored_issued / total_issued, 0)
+  )
+
+# Because we only have 22 weeks of data, you may not want to create too many
+# features that will overfit. Select carefully.
+
+###############################################################################
+# 3. Convert arrivals to a time series
+###############################################################################
+# Start time: e.g., if the first row corresponds to 2022 week 1, etc.
+# frequency=52 (approx. weeks per year).
+arrivals_ts <- ts(df$arrivals, frequency = 52)
+
+# Create a matrix of regressors (excluding the first couple of rows if lagged
+# variables are missing).
+# We must ensure the time alignment is correct for ARIMAX.
+# For demonstration, pick a few from above:
+xreg_data <- cbind(
+  df$visas_issued,
+  df$visa_applications,
+  df$L1_visas_issued,
+  df$prop_family,
+  df$prop_sponsor,
+  df$prop_govt
+)
+
+# Because of lags, often you must drop NAs from the top rows.
+valid_rows <- complete.cases(xreg_data, arrivals_ts)
+arrivals_ts <- ts(arrivals_ts[valid_rows], frequency = 52)
+xreg_data <- xreg_data[valid_rows, ]
+
+# We now have a shorter series if the first row(s) were incomplete.
+
+###############################################################################
+# 4. Split into a training set and holdout/test (optional)
+###############################################################################
+# Because we have only 22 weeks, you might keep all for training, 
+# but you could do e.g. last 4 weeks as test.
+
+n <- length(arrivals_ts)
+train_size <- n - 4  # for example
+arrivals_train <- window(arrivals_ts, end = train_size)
+arrivals_test  <- window(arrivals_ts, start = train_size + 1)
+xreg_train <- xreg_data[1:train_size, ]
+xreg_test  <- xreg_data[(train_size + 1):n, ]
+
+###############################################################################
+# 5. Fit an ARIMAX model
+###############################################################################
+fit_arimax <- auto.arima(
+  arrivals_train,
+  xreg = xreg_train,
+  stepwise = FALSE,
+  approximation = FALSE
+)
+
+summary(fit_arimax)
+
+###############################################################################
+# 6. Forecast for the test set
+###############################################################################
+# In a real scenario, you need the future values of your regressors (xreg) 
+# to forecast the next 12 weeks. If you do not have them, you can either:
+#  (a) Forecast the regressors themselves (using a simple model or scenario),
+#  (b) Assume they remain stable or follow a certain trend.
+
+# For demonstration, we forecast the next 4 weeks (our test set):
+fc_arimax_test <- forecast(fit_arimax, xreg = xreg_test, h = 4)
+print(fc_arimax_test)
+
+###############################################################################
+# 7. Accuracy on the holdout / test set
+###############################################################################
+accuracy(fc_arimax_test, arrivals_test)
+
+###############################################################################
+# 8. Forecast into the next 12 weeks
+###############################################################################
+# Prepare xreg_future (12 weeks). This step requires assumptions:
+# e.g., we might assume an average or a trend for visas_issued and similar.
+# Here, show a placeholder with fictional future data:
+
+# Example: assume no big change, so we take the last known values for 12 weeks
+last_known_visas_issued <- tail(df$visas_issued, 1)
+last_known_applications <- tail(df$visa_applications, 1)
+last_known_prop_family  <- tail(df$prop_family, 1)
+last_known_prop_sponsor <- tail(df$prop_sponsor, 1)
+last_known_prop_govt    <- tail(df$prop_govt, 1)
+# ... and similarly for any lags.
+
+xreg_future <- matrix(
+  rep(
+    c(
+      last_known_visas_issued, 
+      last_known_applications,
+      last_known_visas_issued,   # as if L1 is the same
+      last_known_prop_family,
+      last_known_prop_sponsor,
+      last_known_prop_govt
+    ),
+    12
+  ),
+  nrow = 12,
+  byrow = TRUE
+)
+
+# Now forecast the next 12 weeks:
+fc_arimax_12 <- forecast(fit_arimax, xreg = xreg_future, h = 12)
+print(fc_arimax_12)
+
+# fc_arimax_12$mean will contain the point forecasts (expected arrivals).
+
+────────────────────────────────────────────────────────────────────────
+5. Interpretation and Next Steps
+────────────────────────────────────────────────────────────────────────
+
+• Because of the short historical series (22 weeks), the model may be quite sensitive to outliers and large changes in the underlying process (for example, policy shifts).  
+• Validate forecasts with any additional domain knowledge. If there are significant policy changes that would drastically alter visa issuance or arrival patterns, incorporate that information.  
+• If desired, you could experiment with other methods:  
+  – Vector Autoregression (VAR) with arrivals, visas_issued, etc.  
+  – Simpler linear regression with time-series errors.  
+  – Bayesian hierarchical models if you have county-level or sponsor-level data.  
+
+In summary, you can combine:  
+1) A univariate time series model of arrivals,  
+2) Exogenous regressors (visa applications, visas issued, visa-type composition),  
+3) Lagging and proportion features,  
+
+… to build an ARIMAX forecasting model. Always remember to keep track of assumptions for future values of the regressors when forecasting beyond the historical data window.

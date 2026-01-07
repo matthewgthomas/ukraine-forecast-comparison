@@ -1,0 +1,203 @@
+Below is an illustrative example of how you could build a simple numerical simulation in R to predict weekly arrivals over the next 3 months (≈12 weeks) given:
+
+• Weekly totals of visa applications  
+• Weekly totals of visas issued  
+• Type of visa ("Ukraine Family Scheme", "Ukraine Sponsorship Scheme", or "Government sponsored")  
+• People with visas arriving  
+
+Since no real dataset is provided, the code below synthesizes a small dummy dataset, engineers a few basic features, and demonstrates how you might forecast arrivals. Feel free to adjust it to your actual data and modeling choices.
+
+--------------------------------------------------------------------------------
+## 1. Simulated Data Setup
+--------------------------------------------------------------------------------
+# Clear workspace (optional)
+rm(list = ls())
+
+# Load necessary libraries
+# install.packages("forecast")  # Uncomment if "forecast" not yet installed
+library(forecast)
+library(dplyr)
+
+set.seed(123)  # For reproducibility
+
+# Number of weeks of historical data
+n <- 40
+
+# Generate dummy weekly data
+week <- seq_len(n)
+
+# Total weekly visa applications
+visa_applications <- rpois(n, lambda = 1000)
+
+# Total weekly visas issued
+visas_issued <- rpois(n, lambda = 800)
+
+# Split the visas issued into the three types (arbitrary proportions)
+# Make sure they sum up to the total "visas_issued"
+ukraine_family        <- pmax(0, round(visas_issued * runif(n, min = 0.3, max = 0.5)))
+ukraine_sponsorship   <- pmax(0, round(visas_issued * runif(n, min = 0.2, max = 0.4)))
+government_sponsored  <- visas_issued - ukraine_family - ukraine_sponsorship
+
+# Generate actual arrivals (people with visas who arrived)
+# For simplicity, let arrivals be positively associated with
+# last week's visas issued.
+arrivals <- numeric(n)
+arrivals[1] <- rpois(1, lambda = 600)
+for (i in 2:n) {
+  # a simple model: arrivals depend on last week's arrivals and last week's visas
+  arrivals[i] <- rpois(
+    1,
+    lambda = 0.3 * arrivals[i - 1] + 0.5 * visas_issued[i - 1] + 100
+  )
+}
+
+# Combine into one data frame
+df <- data.frame(
+  week                 = week,
+  visa_applications    = visa_applications,
+  visas_issued         = visas_issued,
+  ukraine_family       = ukraine_family,
+  ukraine_sponsorship  = ukraine_sponsorship,
+  government_sponsored = government_sponsored,
+  arrivals             = arrivals
+)
+
+# Take a peek
+head(df)
+
+--------------------------------------------------------------------------------
+## 2. Feature Engineering
+--------------------------------------------------------------------------------
+# Here are a few example features you might engineer for a model:
+
+df <- df %>%
+  mutate(
+    # Ratio of visas issued to applications
+    ratio_issued_applications = visas_issued / pmax(visa_applications, 1),
+    
+    # Week-over-week difference
+    diff_visas_issued = c(NA, diff(visas_issued)),
+    
+    # Lagged features (how many arrivals one week ago, how many visas issued one week ago)
+    lag_arrivals      = dplyr::lag(arrivals, 1),
+    lag_visas_issued  = dplyr::lag(visas_issued, 1)
+  )
+
+# Remove the first row with NA if any features were lagged
+df_model <- na.omit(df)
+
+--------------------------------------------------------------------------------
+## 3. Modeling and Forecasting with ARIMA (Including Exogenous Variables)
+--------------------------------------------------------------------------------
+# We'll treat weekly arrivals as a time series,
+# and use ARIMA with exogenous regressors (the "forecast" package).
+
+# Convert arrivals to a time-series object. Assume weekly frequency = 52.
+arrivals_ts <- ts(df_model$arrivals, frequency = 52)
+
+# Build an exogenous regressor matrix.
+# You can include whichever features you believe are most predictive:
+xreg <- as.matrix(df_model %>%
+  select(
+    ratio_issued_applications,
+    lag_visas_issued,
+    ukraine_family,
+    ukraine_sponsorship,
+    government_sponsored
+  )
+)
+
+# Fit an ARIMA model automatically
+fit_arima <- auto.arima(
+  y    = arrivals_ts,
+  xreg = xreg,
+  stepwise    = FALSE,
+  approximation = FALSE,
+  trace = FALSE
+)
+
+summary(fit_arima)
+
+# Number of weeks to forecast (approximately 3 months ~ 12 weeks)
+horizon <- 12
+
+# For the forecast, we need future values / scenarios of exogenous variables.
+# In practice, you would either forecast these covariates or use scenario assumptions.
+# Here, we simply assume the future 12 weeks of these covariates remain at
+# their most recent levels (a naive scenario).
+
+last_row <- tail(df_model, 1)
+future_scenario <- data.frame(
+  ratio_issued_applications = rep(last_row$ratio_issued_applications, horizon),
+  lag_visas_issued          = rep(last_row$visas_issued, horizon),
+  ukraine_family            = rep(last_row$ukraine_family, horizon),
+  ukraine_sponsorship       = rep(last_row$ukraine_sponsorship, horizon),
+  government_sponsored      = rep(last_row$government_sponsored, horizon)
+)
+new_xreg <- as.matrix(future_scenario)
+
+# Forecast the next 12 weeks
+fc <- forecast(fit_arima, xreg = new_xreg, h = horizon)
+print(fc)
+
+# Plot the forecast
+plot(fc, main = "Forecast of Arrivals (ARIMA + Exogenous Vars)")
+grid()
+
+--------------------------------------------------------------------------------
+## 4. (Optional) Simulation for Uncertainty
+--------------------------------------------------------------------------------
+# Instead of just a single forecast path, you can generate multiple paths
+# via simulation to gauge uncertainty. Each simulation path will add random
+# noise consistent with the ARIMA model and residuals.
+
+# We'll do, say, 100 simulation runs each 12 steps ahead.
+nsim <- 100
+simulations <- matrix(nrow = horizon, ncol = nsim)
+
+for(i in seq_len(nsim)) {
+  # simulate.Arima can generate future sample paths
+  sim_path <- simulate(
+    fit_arima,
+    nsim = horizon,
+    xreg = new_xreg,
+    future = TRUE
+  )
+  simulations[, i] <- sim_path
+}
+
+# Calculate mean and quantiles across all simulations
+sim_mean <- apply(simulations, 1, mean)
+sim_lower <- apply(simulations, 1, quantile, probs = 0.1)
+sim_upper <- apply(simulations, 1, quantile, probs = 0.9)
+
+# A quick plot of the simulation envelopes
+plot(
+  1:horizon, sim_mean, type = "l",
+  ylim = range(sim_lower, sim_upper),
+  xlab = "Weeks Ahead", ylab = "Arrivals",
+  main = "Simulation of Arrivals (10%-90% envelope)"
+)
+lines(1:horizon, sim_lower, col = "red", lty = 2)
+lines(1:horizon, sim_upper, col = "red", lty = 2)
+grid()
+
+# The mean simulation path is the black line, and the 10%-90% interval
+# is shown in red. You can adjust these as needed.
+
+--------------------------------------------------------------------------------
+## 5. Guidance for Real Data
+--------------------------------------------------------------------------------
+# 1. Replace the dummy-creation steps with your actual weekly data:
+#    - visa_applications
+#    - visas_issued
+#    - type of visa (which could be tallied into columns if needed)
+#    - arrivals
+# 2. Engineer additional features that might help prediction:
+#    - Lags, differences, or ratios of your main time series
+#    - Splits by visa type
+# 3. Choose a modeling approach (ARIMA, linear models, random forests, etc.)
+# 4. Perform scenario-based or probabilistic (Monte Carlo) simulations
+#    to estimate potential future ranges.
+
+# Adjust, refine, and test your model to ensure it aligns with real-world patterns.

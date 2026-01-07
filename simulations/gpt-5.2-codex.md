@@ -1,0 +1,1 @@
+Added an R numerical simulation that engineers lag/rolling features, simulates applications/issuance/arrivals by visa type, and outputs weekly and total 12-week arrival forecasts with uncertainty bands
