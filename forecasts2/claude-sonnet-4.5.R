@@ -59,7 +59,34 @@ simulate_data <- function(n_weeks = 22) {
 
 # Load your actual data here
 # df <- read_csv("your_data.csv")
-df <- simulate_data(22)
+# df <- simulate_data(22)
+
+# Load actual data
+df <- read_csv("data/visas-weekly-training.csv")
+
+# Reformat data to match what the code below is expecting
+df <- df |> 
+  mutate(week = week(date)) |>
+  rename(
+    apps = applications,
+    visas = visas_issued
+  ) |> 
+  mutate(visa_type = case_match(
+    visa_type,
+    "Ukraine Family Scheme"     ~ "family",
+    "Ukraine Sponsorship Scheme" ~ "sponsor",
+    "Government sponsored"       ~ "govt"
+  )) |>
+  pivot_wider(
+    names_from = visa_type,
+    values_from = c(apps, visas, arrivals),
+    names_sep = "_"
+  ) |> 
+  mutate(
+    total_applications = apps_family + apps_sponsor + apps_govt,
+    total_visas = visas_family + visas_sponsor + visas_govt,
+    total_arrivals = arrivals_family + arrivals_sponsor + arrivals_govt
+  )
 
 cat("Data Summary:\n")
 print(summary(df[, c("total_applications", "total_visas", "total_arrivals")]))
@@ -265,11 +292,12 @@ generate_forecast <- function(data, horizon = 13) {
   # Ensemble: weighted average of all models
   # Weight based on model sophistication and theoretical fit
   weights <- c(0.15, 0.15, 0.20, 0.30, 0.20)  # ARIMA, ETS, LM, XGB, Pipeline
+  weights <- c(0.2, 0.2, 0, 0.35, 0.25)  # ARIMA, ETS, LM, XGB, Pipeline
   
   forecast_ensemble <- (
     as.numeric(forecast_arima$mean) * weights[1] +
     as.numeric(forecast_ets$mean) * weights[2] +
-    as.numeric(forecast_lm) * weights[3] +
+    #as.numeric(forecast_lm) * weights[3] +
     as.numeric(forecast_xgb) * weights[4] +
     as.numeric(forecast_pipeline) * weights[5]
   )
@@ -441,7 +469,7 @@ cat(strrep("=", 70) %+% "\n")
 # ============================================================================
 
 # Save forecasts
-write_csv(results$forecasts, "ukraine_arrivals_forecast.csv")
+write_csv(results$forecasts, "forecasts2/data/claude-sonnet-4.5-forecast.csv")
 cat("\nForecasts saved to: ukraine_arrivals_forecast.csv\n")
 
 # Return results
