@@ -5,6 +5,16 @@ library(lubridate)
 library(forecast)
 library(nnls)
 
+# Load data
+df <- read.csv("data/visas-weekly-training.csv")
+
+df <- df |> 
+  rename(
+    week = date,
+    type = visa_type,
+    issued = visas_issued
+  ) 
+
 #----------------------------
 # Helpers
 #----------------------------
@@ -258,6 +268,8 @@ forecast_ukraine_arrivals <- function(df,
 #----------------------------
 # Example usage:
 #----------------------------
-# result <- forecast_ukraine_arrivals(df, horizon_weeks = 13, max_delay = 6, app_lags = 2, nsim = 3000)
-# result$total
-# result$by_type
+result <- forecast_ukraine_arrivals(df, horizon_weeks = 13, max_delay = 6, app_lags = 2, nsim = 3000)
+result$total
+result$by_type
+
+write.csv(result$total, "forecasts2/data/gpt-5.2-forecast.csv", row.names = FALSE)

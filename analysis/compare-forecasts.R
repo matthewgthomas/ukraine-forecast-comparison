@@ -73,6 +73,12 @@ gpt_4_1 <- tibble(
 ) |> 
   slice(1:12)
 
+gpt_5_2 <- read_csv("forecasts2/data/gpt-5.2-forecast.csv")
+
+gpt_5_2 <- gpt_5_2 |> 
+  select(date = week, forecast_arrivals = mean) |> 
+  mutate(model = "GPT-5.2")
+
 # ---- Compare total number of arrivals (rather than visa type-specific) ----
 eval_weekly <- 
   bind_rows(
@@ -83,7 +89,8 @@ eval_weekly <-
     gemini_forecast, 
     gpt_3_5, 
     gpt_4o, 
-    gpt_4_1
+    gpt_4_1,
+    gpt_5_2
   ) |> 
   left_join(actual_arrivals, by = "date")
 
