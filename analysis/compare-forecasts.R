@@ -30,9 +30,37 @@ gemini <- gemini |>
   ungroup() |> 
   mutate(model = "Gemini Pro 3")
 
+gpt_3_5_forecast <- read_rds("forecasts/data/forecast-gpt-3.5-turbo.rds")
+
+# Convert the forecast object to a data frame
+gpt_3_5 <- tibble(
+  date = actual_arrivals$date[1:length(gpt_3_5_forecast$mean)],
+  forecast_arrivals = as.numeric(gpt_3_5_forecast$mean),
+  model = "GPT-3.5 Turbo"
+)
+
+gpt_4o_forecast <- read_rds("forecasts/data/forecast-gpt-4o.rds")
+
+# Convert the forecast object to a data frame
+gpt_4o <- tibble(
+  date = actual_arrivals$date[1:length(gpt_4o_forecast$mean)],
+  forecast_arrivals = as.numeric(gpt_4o_forecast$mean),
+  model = "GPT-4o"
+)
+
+gpt_4_1_forecast <- read_rds("forecasts/data/forecast-gpt-4.1.rds")
+
+# Convert the forecast object to a data frame
+gpt_4_1 <- tibble(
+  date = actual_arrivals$date[1:length(gpt_4_1_forecast$mean)],
+  forecast_arrivals = as.numeric(gpt_4_1_forecast$mean),
+  model = "GPT-4.1"
+) |> 
+  slice(1:12)
+
 # ---- Compare total number of arrivals (rather than visa type-specific) ----
 eval_weekly <- 
-  bind_rows(brc_simulation, claude, gemini) |> 
+  bind_rows(brc_simulation, claude, gemini, gpt_3_5, gpt_4o, gpt_4_1) |> 
   left_join(actual_arrivals, by = "date")
 
 # Aggregate to total arrivals over the entire three month period for each model
@@ -87,4 +115,5 @@ errors_total <- calculate_errors(eval_total)
 metrics_total <- calculate_metrics(errors_total)
 
 metrics_total
+
 write_csv(metrics_total, "data/forecast-evaluation-total.csv")
