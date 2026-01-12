@@ -45,7 +45,8 @@ gemini_forecast <- gemini_forecast |>
   select(data = Week, forecast_arrivals) |> 
   mutate(model = "Gemini Pro 3 (forecast)")
 
-gpt_3_5_forecast <- read_rds("forecasts/data/forecast-gpt-3.5-turbo.rds")
+# gpt_3_5_forecast <- read_rds("forecasts/data/forecast-gpt-3.5-turbo.rds")
+gpt_3_5_forecast <- read_rds("forecasts2/data/gpt-3.5-turbo-forecast.rds")
 
 # Convert the forecast object to a data frame
 gpt_3_5 <- tibble(

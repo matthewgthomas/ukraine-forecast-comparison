@@ -2,7 +2,15 @@ library(forecast)
 library(tidyr)
 library(dplyr)
 
-data <- read.csv("ukraine_data.csv")
+data <- read.csv("data/visas-weekly-training.csv")
+
+data <- data |> 
+  rename(
+    Date = date,
+    visa_applications = applications,
+    visas_issued = visas_issued,
+    people_arriving = arrivals
+  )
 
 # Convert date column to Date format
 data$Date <- as.Date(data$Date)
@@ -27,3 +35,5 @@ forecast_values <- forecast(fit, h = 12)
 
 # Print the forecasted values
 print(forecast_values)
+
+readr::write_rds(forecast_values, "forecasts2/data/gpt-3.5-turbo-forecast.rds")
